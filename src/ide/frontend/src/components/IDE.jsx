@@ -1,6 +1,7 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import * as Y from 'yjs'
 import { Awareness } from 'y-protocols/awareness'
+import { resolveRange, isStale } from '../positionUtils'
 import { useCollabWS } from '../useCollabWS'
 import EditorPane from './EditorPane'
 import OutputPanel from './OutputPanel'
@@ -18,6 +19,8 @@ export default function IDE({ session }) {
   const [running, setRunning] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [docReady, setDocReady] = useState(false)
+
+  const editorViewRef = useRef(null)
 
   // Single Yjs document + awareness + undo manager for the session
   const ydoc = useMemo(() => new Y.Doc(), [])
@@ -57,11 +60,33 @@ export default function IDE({ session }) {
   }
 
   function handleAcceptProposal(proposal) {
-    const ytext = ydoc.getText('content')
-    if (proposal.startIndex !== proposal.endIndex) {
-      ytext.delete(proposal.startIndex, proposal.endIndex - proposal.startIndex)
+    // If the proposal has CRDT relative positions, validate before applying.
+    if (proposal.relStart && proposal.relEnd) {
+      if (isStale(proposal, ydoc)) {
+        // Target was modified — silently discard instead of corrupting the doc.
+        handleRejectProposal(proposal.id)
+        return
+      }
+      const range = resolveRange(ydoc, proposal.relStart, proposal.relEnd)
+      if (!range) {
+        handleRejectProposal(proposal.id)
+        return
+      }
+      const ytext = ydoc.getText('content')
+      ydoc.transact(() => {
+        if (range.end > range.start) {
+          ytext.delete(range.start, range.end - range.start)
+        }
+        ytext.insert(range.start, proposal.replacement)
+      })
+    } else {
+      // Legacy proposal without relative positions.
+      const ytext = ydoc.getText('content')
+      if (proposal.startIndex !== proposal.endIndex) {
+        ytext.delete(proposal.startIndex, proposal.endIndex - proposal.startIndex)
+      }
+      ytext.insert(proposal.startIndex, proposal.replacement)
     }
-    ytext.insert(proposal.startIndex, proposal.replacement)
     sendJSON({ type: 'proposal', action: 'accept', proposal })
     setProposals(prev => prev.filter(p => p.id !== proposal.id))
   }
@@ -151,12 +176,13 @@ export default function IDE({ session }) {
         onReject={handleRejectProposal}
         ydoc={ydoc}
         sendJSON={sendJSON}
+        editorViewRef={editorViewRef}
       />
 
       {/* Main area: editor + output */}
       <div className="main-area">
         {docReady
-          ? <EditorPane ydoc={ydoc} awareness={awareness} undoManager={undoManager} role={myRole} />
+          ? <EditorPane ydoc={ydoc} awareness={awareness} undoManager={undoManager} role={myRole} editorViewRef={editorViewRef} />
           : <div className="editor-loading">Connecting…</div>
         }
         <OutputPanel lines={outputLines} status={outputStatus} running={running} />

@@ -54,6 +54,7 @@ html,body,#root{height:100%;background:var(--bg0);color:var(--text);font-family:
 .proposal-card:hover{border-color:var(--muted)}
 .proposal-header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
 .proposal-author{font-size:11px;color:var(--subtle);font-family:'JetBrains Mono',monospace}
+.proposal-lines{margin-left:auto;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--amber);background:var(--amber-dim);padding:1px 5px;border-radius:3px;border:1px solid #f0a50030}
 .proposal-diff{background:var(--bg0);border-radius:4px;padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;margin-bottom:8px;border:1px solid var(--line)}
 .diff-del{color:var(--red);background:var(--red-dim);display:block;white-space:pre-wrap;word-break:break-all}
 .diff-add{color:var(--green);background:var(--green-dim);display:block;white-space:pre-wrap;word-break:break-all}
@@ -63,6 +64,9 @@ html,body,#root{height:100%;background:var(--bg0);color:var(--text);font-family:
 .prop-accept{background:var(--green-dim);color:var(--green);border:1px solid #4ec97e30}
 .prop-reject{background:var(--red-dim);color:var(--red);border:1px solid #f47c7c30}
 .empty-proposals{text-align:center;padding:24px 0;color:var(--muted);font-size:12px;line-height:1.7}
+.proposal-stale{opacity:.6;border-color:var(--muted) !important}
+.stale-badge{margin-left:auto;font-size:9px;font-family:'JetBrains Mono',monospace;padding:1px 5px;border-radius:3px;background:var(--red-dim);color:var(--red);border:1px solid #f47c7c30}
+.stale-note{font-size:10px;color:var(--red);margin-bottom:6px;font-style:italic}
 .propose-btn{width:100%;margin-top:8px;padding:6px 0;border-radius:var(--radius);background:var(--amber-dim);color:var(--amber);border:1px solid #f0a50030;font-size:12px;font-weight:500;cursor:pointer;font-family:'DM Sans',sans-serif;transition:opacity .15s}
 .propose-btn:hover{opacity:.8}
 
@@ -134,9 +138,7 @@ html,body,#root{height:100%;background:var(--bg0);color:var(--text);font-family:
 .error-msg{color:var(--red);font-size:12px;margin-top:-8px;margin-bottom:10px}
 
 /* ── Propose Modal ──────────────────────────────────────────── */
-.propose-modal{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;width:420px;box-shadow:0 24px 64px #00000060;position:relative}
-.propose-modal textarea{width:100%;background:var(--bg0);border:1px solid var(--line);border-radius:var(--radius);padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text);outline:none;resize:vertical;min-height:80px;transition:border-color .15s;margin-bottom:12px}
-.propose-modal textarea:focus{border-color:var(--go-cyan)}
+.propose-modal{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;width:560px;box-shadow:0 24px 64px #00000060;position:relative}
 .propose-modal-actions{display:flex;gap:8px}
 .propose-modal-actions .primary-btn{margin-bottom:0}
 .cancel-btn{flex:1;padding:9px;border-radius:var(--radius);background:var(--bg3);border:1px solid var(--line);cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--text);transition:opacity .15s}

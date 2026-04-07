@@ -1,14 +1,18 @@
 import { useEffect, useRef } from 'react'
-import { EditorView, keymap } from '@codemirror/view'
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
+import { bracketMatching, indentOnInput } from '@codemirror/language'
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import { highlightSelectionMatches } from '@codemirror/search'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { go } from '@codemirror/lang-go'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 
-export default function EditorPane({ ydoc, awareness, undoManager, role }) {
-  const containerRef = useRef(null)
-  const viewRef = useRef(null)
+export default function EditorPane({ ydoc, awareness, undoManager, role, editorViewRef }) {
+  const containerRef   = useRef(null)
+  const internalRef    = useRef(null)
+  const viewRef        = editorViewRef ?? internalRef
 
   useEffect(() => {
     if (!containerRef.current || !ydoc || !awareness || !undoManager) return
@@ -19,7 +23,14 @@ export default function EditorPane({ ydoc, awareness, undoManager, role }) {
     const state = EditorState.create({
       doc: ytext.toString(),
       extensions: [
-        keymap.of([...yUndoManagerKeymap, ...defaultKeymap, indentWithTab]),
+        lineNumbers(),
+        highlightActiveLine(),
+        highlightActiveLineGutter(),
+        highlightSelectionMatches(),
+        bracketMatching(),
+        closeBrackets(),
+        indentOnInput(),
+        keymap.of([...closeBracketsKeymap, ...yUndoManagerKeymap, ...defaultKeymap, indentWithTab]),
         oneDark,
         go(),
         yCollab(ytext, awareness, { undoManager }),

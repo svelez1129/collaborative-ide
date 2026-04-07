@@ -101,12 +101,21 @@ func (h *Hub) UpdateClientRole(userID, role string) {
 	}
 }
 
-// SendJSON is a helper to encode and enqueue a JSON text frame for one client.
+// SendJSON encodes v as JSON and enqueues it as a text frame for one client.
 func (h *Hub) SendJSON(userID string, v any) {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return
 	}
+	h.sendRaw(userID, data)
+}
+
+// SendRaw enqueues already-encoded JSON bytes as a text frame for one client.
+func (h *Hub) SendRaw(userID string, data []byte) {
+	h.sendRaw(userID, data)
+}
+
+func (h *Hub) sendRaw(userID string, data []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if c, ok := h.clients[userID]; ok {

@@ -98,6 +98,15 @@ type incomingMsg struct {
 	// role_change fields
 	UserID string `json:"userID"`
 	Role   string `json:"role"`
+	// proposal CRDT fields
+	OriginalText string `json:"originalText"`
+	RelStart     string `json:"relStart"`
+	RelEnd       string `json:"relEnd"`
+	StartLine    int    `json:"startLine"`
+	EndLine      int    `json:"endLine"`
+	// sync routing fields
+	From string `json:"from"` // sender userID (sync_sv)
+	To   string `json:"to"`   // target userID (sync_update)
 }
 
 // handleWS upgrades to WebSocket, then routes binary (Yjs) and text (JSON) frames.
@@ -169,6 +178,14 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				s.hub.BroadcastSession(WSMessage{Binary: false, Data: msg}, userID, code)
 			case "awareness":
 				s.hub.BroadcastSession(WSMessage{Binary: false, Data: msg}, userID, code)
+			case "sync_sv":
+				// Relay state vector to all other clients — they'll respond with the diff.
+				s.hub.BroadcastSession(WSMessage{Binary: false, Data: msg}, userID, code)
+			case "sync_update":
+				// Route the diff to the specific client that requested it.
+				if m.To != "" {
+					s.hub.SendRaw(m.To, msg)
+				}
 			}
 		}
 	}
@@ -181,31 +198,40 @@ func (s *Server) handleProposalMsg(client *Client, session *Session, m incomingM
 			return
 		}
 		proposal := Proposal{
-			ID:          m.ID,
-			Author:      client.ID,
-			StartIndex:  m.StartIndex,
-			EndIndex:    m.EndIndex,
-			Replacement: m.Replacement,
+			ID:           m.ID,
+			Author:       client.ID,
+			Replacement:  m.Replacement,
+			OriginalText: m.OriginalText,
+			RelStart:     m.RelStart,
+			RelEnd:       m.RelEnd,
+			StartLine:    m.StartLine,
+			EndLine:      m.EndLine,
 		}
 		s.collab.DoOp(ProposalCmd{
-			SessionCode: client.Code,
-			ID:          proposal.ID,
-			Author:      proposal.Author,
-			StartIndex:  proposal.StartIndex,
-			EndIndex:    proposal.EndIndex,
-			Replacement: proposal.Replacement,
-			Action:      "add",
+			SessionCode:  client.Code,
+			ID:           proposal.ID,
+			Author:       proposal.Author,
+			Replacement:  proposal.Replacement,
+			OriginalText: proposal.OriginalText,
+			RelStart:     proposal.RelStart,
+			RelEnd:       proposal.RelEnd,
+			StartLine:    proposal.StartLine,
+			EndLine:      proposal.EndLine,
+			Action:       "add",
 		})
 		// Broadcast the new proposal to all clients in session.
 		out, _ := json.Marshal(map[string]any{
 			"type":   "proposal",
 			"action": "add",
 			"proposal": map[string]any{
-				"id":          proposal.ID,
-				"author":      proposal.Author,
-				"startIndex":  proposal.StartIndex,
-				"endIndex":    proposal.EndIndex,
-				"replacement": proposal.Replacement,
+				"id":           proposal.ID,
+				"author":       proposal.Author,
+				"replacement":  proposal.Replacement,
+				"originalText": proposal.OriginalText,
+				"relStart":     proposal.RelStart,
+				"relEnd":       proposal.RelEnd,
+				"startLine":    proposal.StartLine,
+				"endLine":      proposal.EndLine,
 			},
 		})
 		s.hub.BroadcastSessionAll(WSMessage{Binary: false, Data: out}, client.Code)

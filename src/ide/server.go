@@ -15,11 +15,14 @@ type SessionState struct {
 
 // Proposal represents a pending suggested change.
 type Proposal struct {
-	ID          string
-	Author      string
-	StartIndex  int
-	EndIndex    int
-	Replacement string
+	ID           string
+	Author       string
+	Replacement  string
+	OriginalText string // text being replaced (empty = insertion)
+	RelStart     string // base64 Yjs relative position
+	RelEnd       string // base64 Yjs relative position
+	StartLine    int    // 1-based start line (snapshot at submission)
+	EndLine      int    // 1-based end line (snapshot at submission)
 }
 
 // CollabServer implements the StateMachine interface for the RSM.
@@ -77,11 +80,14 @@ func (cs *CollabServer) DoOp(req any) any {
 		switch cmd.Action {
 		case "add":
 			s.Proposals[cmd.ID] = Proposal{
-				ID:          cmd.ID,
-				Author:      cmd.Author,
-				StartIndex:  cmd.StartIndex,
-				EndIndex:    cmd.EndIndex,
-				Replacement: cmd.Replacement,
+				ID:           cmd.ID,
+				Author:       cmd.Author,
+				Replacement:  cmd.Replacement,
+				OriginalText: cmd.OriginalText,
+				RelStart:     cmd.RelStart,
+				RelEnd:       cmd.RelEnd,
+				StartLine:    cmd.StartLine,
+				EndLine:      cmd.EndLine,
 			}
 		case "accept", "reject":
 			delete(s.Proposals, cmd.ID)
