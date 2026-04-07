@@ -68,6 +68,7 @@ html,body,#root{height:100%;background:var(--bg0);color:var(--text);font-family:
 
 /* ── Editor ─────────────────────────────────────────────────── */
 .editor-wrap{position:relative;overflow:hidden;background:var(--bg0);flex:1;min-width:0}
+.editor-loading{flex:1;display:flex;align-items:center;justify-content:center;background:var(--bg0);color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace}
 .editor-wrap .cm-editor{height:100%;font-family:'JetBrains Mono',monospace;font-size:13px}
 .editor-wrap .cm-editor.cm-focused{outline:none}
 .editor-wrap .cm-scroller{overflow:auto}
@@ -83,6 +84,22 @@ html,body,#root{height:100%;background:var(--bg0);color:var(--text);font-family:
 .output-body::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:2px}
 .output-line{white-space:pre-wrap;word-break:break-all;display:block}
 .output-line.err{color:var(--red)}.output-line.ok{color:var(--text)}.output-line.meta{color:var(--muted);font-style:italic}
+
+/* ── Output syntax highlighting ─────────────────────────────── */
+/* compiler error line */
+.out-compiler-err{display:block;white-space:pre-wrap;word-break:break-all}
+.out-file{color:var(--subtle)}
+.out-sep{color:var(--muted)}
+.out-linenum{color:var(--amber)}
+.out-colnum{color:var(--amber);opacity:.7}
+.out-errmsg{color:var(--red)}
+.out-keyword{color:#ff6b6b;font-weight:600;text-decoration:underline;text-decoration-style:wavy;text-underline-offset:2px}
+/* section header e.g. "# command-line-arguments" */
+.output-line.out-section{color:var(--muted);font-style:italic}
+/* panic */
+.output-line.out-panic{color:#ff4444;font-weight:600}
+/* goroutine stack trace */
+.output-line.out-trace{color:var(--subtle);font-size:11px}
 
 /* ── Spinner ────────────────────────────────────────────────── */
 @keyframes spin{to{transform:rotate(360deg)}}

@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import * as Y from 'yjs'
+import { Awareness } from 'y-protocols/awareness'
 import { useCollabWS } from '../useCollabWS'
 import EditorPane from './EditorPane'
 import OutputPanel from './OutputPanel'
@@ -16,9 +17,12 @@ export default function IDE({ session }) {
   const [outputStatus, setOutputStatus] = useState(null)
   const [running, setRunning] = useState(false)
   const [showShare, setShowShare] = useState(false)
+  const [docReady, setDocReady] = useState(false)
 
-  // Single Yjs document for the session
+  // Single Yjs document + awareness + undo manager for the session
   const ydoc = useMemo(() => new Y.Doc(), [])
+  const awareness = useMemo(() => new Awareness(ydoc), [ydoc])
+  const undoManager = useMemo(() => new Y.UndoManager(ydoc.getText('content')), [ydoc])
 
   const onParticipants = useCallback((list) => {
     setParticipants(list.map(p => ({ ...p, isMe: p.id === userID })))
@@ -43,7 +47,8 @@ export default function IDE({ session }) {
     setRunning(false)
   }, [])
 
-  const { sendJSON } = useCollabWS({ ydoc, code, userID, role: myRole, onParticipants, onProposal, onRoleChange, onRunResult })
+  const onDocReady = useCallback(() => setDocReady(true), [])
+  const { sendJSON } = useCollabWS({ ydoc, awareness, undoManager, code, userID, role: myRole, avatarColor, onParticipants, onProposal, onRoleChange, onRunResult, onDocReady })
 
   function handleRoleChange(targetID, newRole) {
     sendJSON({ type: 'role_change', userID: targetID, role: newRole })
@@ -150,7 +155,10 @@ export default function IDE({ session }) {
 
       {/* Main area: editor + output */}
       <div className="main-area">
-        <EditorPane ydoc={ydoc} role={myRole} />
+        {docReady
+          ? <EditorPane ydoc={ydoc} awareness={awareness} undoManager={undoManager} role={myRole} />
+          : <div className="editor-loading">Connecting…</div>
+        }
         <OutputPanel lines={outputLines} status={outputStatus} running={running} />
       </div>
 

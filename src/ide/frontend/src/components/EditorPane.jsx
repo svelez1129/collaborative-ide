@@ -4,14 +4,14 @@ import { EditorState } from '@codemirror/state'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { go } from '@codemirror/lang-go'
-import { yCollab } from 'y-codemirror.next'
+import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 
-export default function EditorPane({ ydoc, role }) {
+export default function EditorPane({ ydoc, awareness, undoManager, role }) {
   const containerRef = useRef(null)
   const viewRef = useRef(null)
 
   useEffect(() => {
-    if (!containerRef.current || !ydoc) return
+    if (!containerRef.current || !ydoc || !awareness || !undoManager) return
 
     const ytext = ydoc.getText('content')
     const editable = role === 'editor'
@@ -19,10 +19,10 @@ export default function EditorPane({ ydoc, role }) {
     const state = EditorState.create({
       doc: ytext.toString(),
       extensions: [
-        keymap.of([...defaultKeymap, indentWithTab]),
+        keymap.of([...yUndoManagerKeymap, ...defaultKeymap, indentWithTab]),
         oneDark,
         go(),
-        yCollab(ytext),
+        yCollab(ytext, awareness, { undoManager }),
         EditorView.editable.of(editable),
         EditorView.theme({
           '&': { height: '100%', background: '#0e0e10' },
@@ -45,7 +45,7 @@ export default function EditorPane({ ydoc, role }) {
       view.destroy()
       viewRef.current = null
     }
-  }, [ydoc, role])
+  }, [ydoc, awareness, undoManager, role])
 
   return <div className="editor-wrap" ref={containerRef} />
 }

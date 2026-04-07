@@ -132,10 +132,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Send current doc state to the new client.
-	s.collab.mu.Lock()
-	doc := s.collab.state.Doc
-	s.collab.mu.Unlock()
-	if len(doc) > 0 {
+	if doc := s.collab.GetDoc(code); len(doc) > 0 {
 		conn.WriteMessage(websocket.BinaryMessage, doc)
 	}
 
@@ -154,7 +151,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		case websocket.BinaryMessage:
 			// Raw Yjs update — only editors can push CRDT changes.
 			if client.Role == "editor" {
-				s.collab.DoOp(CRDTUpdateCmd{Update: msg})
+				s.collab.DoOp(CRDTUpdateCmd{SessionCode: code, Update: msg})
 				s.hub.BroadcastSession(WSMessage{Binary: true, Data: msg}, userID, code)
 			}
 
@@ -169,7 +166,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			case "role_change":
 				s.handleRoleChangeMsg(client, session, m)
 			case "run_result":
-				// Relay run results to all other clients in the session as-is.
+				s.hub.BroadcastSession(WSMessage{Binary: false, Data: msg}, userID, code)
+			case "awareness":
 				s.hub.BroadcastSession(WSMessage{Binary: false, Data: msg}, userID, code)
 			}
 		}
@@ -190,6 +188,7 @@ func (s *Server) handleProposalMsg(client *Client, session *Session, m incomingM
 			Replacement: m.Replacement,
 		}
 		s.collab.DoOp(ProposalCmd{
+			SessionCode: client.Code,
 			ID:          proposal.ID,
 			Author:      proposal.Author,
 			StartIndex:  proposal.StartIndex,
@@ -218,7 +217,7 @@ func (s *Server) handleProposalMsg(client *Client, session *Session, m incomingM
 		if m.Proposal == nil {
 			return
 		}
-		s.collab.DoOp(ProposalCmd{ID: m.Proposal.ID, Action: m.Action})
+		s.collab.DoOp(ProposalCmd{SessionCode: client.Code, ID: m.Proposal.ID, Action: m.Action})
 		out, _ := json.Marshal(map[string]any{
 			"type":   "proposal",
 			"action": m.Action,
@@ -238,7 +237,7 @@ func (s *Server) handleRoleChangeMsg(client *Client, session *Session, m incomin
 		return
 	}
 	s.hub.UpdateClientRole(m.UserID, m.Role)
-	s.collab.DoOp(RoleChangeCmd{UserID: m.UserID, Role: m.Role})
+	s.collab.DoOp(RoleChangeCmd{SessionCode: client.Code, UserID: m.UserID, Role: m.Role})
 
 	// Notify all clients of the role change, then send updated participant list.
 	out, _ := json.Marshal(map[string]any{

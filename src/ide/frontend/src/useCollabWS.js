@@ -1,29 +1,27 @@
 import { useEffect, useRef, useCallback } from 'react'
 import * as Y from 'yjs'
+import {
+  encodeAwarenessUpdate,
+  applyAwarenessUpdate,
+  removeAwarenessStates,
+} from 'y-protocols/awareness'
+
+function toBase64(bytes) {
+  let s = ''
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+  return btoa(s)
+}
+
+function fromBase64(b64) {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+}
 
 const STARTER = `package main
 
-import (
-\t"fmt"
-\t"math"
-)
-
-func fibonacci(n int) int {
-\tif n <= 1 {
-\t\treturn n
-\t}
-\treturn fibonacci(n-1) + fibonacci(n-2)
-}
+import "fmt"
 
 func main() {
-\tfmt.Println("GoCollab IDE — Hello!")
-\tfmt.Println()
-\tfmt.Println("Fibonacci sequence:")
-\tfor i := 0; i < 10; i++ {
-\t\tfmt.Printf("  fib(%d) = %d\\n", i, fibonacci(i))
-\t}
-\tfmt.Printf("\\nPi ≈ %.6f\\n", math.Pi)
-\tfmt.Printf("sqrt(2) ≈ %.6f\\n", math.Sqrt(2))
+\tfmt.Println("Hello, World!")
 }
 `
 
@@ -38,7 +36,7 @@ func main() {
  *     { type: 'role_change', userID, role }
  *     { type: 'run_result',  lines, status }
  */
-export function useCollabWS({ ydoc, code, userID, role, onParticipants, onProposal, onRoleChange, onRunResult }) {
+export function useCollabWS({ ydoc, awareness, undoManager, code, userID, role, avatarColor, onParticipants, onProposal, onRoleChange, onRunResult, onDocReady }) {
   const wsRef = useRef(null)
   const roleRef = useRef(role)
   roleRef.current = role
@@ -59,6 +57,9 @@ export function useCollabWS({ ydoc, code, userID, role, onParticipants, onPropos
     wsRef.current = ws
 
     ws.onopen = () => {
+      // Announce our cursor identity to other clients.
+      awareness.setLocalStateField('user', { name: userID, color: avatarColor || '#00adb5' })
+
       // If we're an editor and the server sends no existing doc within 150ms,
       // we're the first user — seed the doc with starter code.
       setTimeout(() => {
@@ -66,14 +67,29 @@ export function useCollabWS({ ydoc, code, userID, role, onParticipants, onPropos
           const ytext = ydoc.getText('content')
           if (ytext.length === 0) {
             ytext.insert(0, STARTER)
+            undoManager?.clear() // don't let users undo the initial content
+            onDocReady?.()
           }
         }
       }, 150)
     }
 
+    // Broadcast our awareness state whenever it changes (cursor move, selection).
+    const onAwarenessChange = ({ added, updated, removed }) => {
+      const changed = [...added, ...updated, ...removed]
+      const update = encodeAwarenessUpdate(awareness, changed)
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'awareness', data: toBase64(update) }))
+      }
+    }
+    awareness.on('change', onAwarenessChange)
+
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        receivedDoc = true
+        if (!receivedDoc) {
+          receivedDoc = true
+          onDocReady?.()
+        }
         const update = new Uint8Array(event.data)
         Y.applyUpdate(ydoc, update, 'remote')
       } else {
@@ -83,6 +99,7 @@ export function useCollabWS({ ydoc, code, userID, role, onParticipants, onPropos
           else if (msg.type === 'proposal') onProposal?.(msg)
           else if (msg.type === 'role_change') onRoleChange?.(msg)
           else if (msg.type === 'run_result') onRunResult?.(msg)
+          else if (msg.type === 'awareness') applyAwarenessUpdate(awareness, fromBase64(msg.data), 'remote')
         } catch {
           // ignore malformed
         }
@@ -101,10 +118,12 @@ export function useCollabWS({ ydoc, code, userID, role, onParticipants, onPropos
     ws.onclose = () => { wsRef.current = null }
 
     return () => {
+      awareness.off('change', onAwarenessChange)
+      removeAwarenessStates(awareness, [ydoc.clientID], null)
       ydoc.off('update', onUpdate)
       ws.close()
     }
-  }, [code, userID, ydoc])
+  }, [code, userID, ydoc, awareness])
 
   const sendJSON = useCallback((obj) => {
     send(JSON.stringify(obj))
