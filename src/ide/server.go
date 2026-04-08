@@ -11,6 +11,7 @@ type SessionState struct {
 	Doc       []byte            // latest Yjs document state
 	Proposals map[string]Proposal
 	Roles     map[string]string // userID -> role
+	Creator   string            // userID of session creator
 }
 
 // Proposal represents a pending suggested change.
@@ -98,9 +99,63 @@ func (cs *CollabServer) DoOp(req any) any {
 		cs.mu.Lock()
 		cs.getOrCreate(cmd.SessionCode).Roles[cmd.UserID] = cmd.Role
 		cs.mu.Unlock()
+
+	case SessionCmd:
+		cs.mu.Lock()
+		switch cmd.Action {
+		case "create":
+			s := cs.getOrCreate(cmd.Code)
+			s.Creator = cmd.UserID
+			s.Roles[cmd.UserID] = "editor"
+		case "join":
+			// Only set role if the user has no existing role yet.
+			s := cs.getOrCreate(cmd.Code)
+			if _, exists := s.Roles[cmd.UserID]; !exists {
+				s.Roles[cmd.UserID] = "viewer"
+			}
+		}
+		cs.mu.Unlock()
 	}
 
 	return nil
+}
+
+// GetSession returns the role of userID in the given session, and whether
+// the session exists. Used by HTTP handlers after replication.
+func (cs *CollabServer) GetSession(code, userID string) (role string, exists bool) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	s, ok := cs.sessions[code]
+	if !ok {
+		return "", false
+	}
+	r, ok2 := s.Roles[userID]
+	if !ok2 {
+		return "viewer", true
+	}
+	return r, true
+}
+
+// SessionExists returns true if the session code is known to this node.
+func (cs *CollabServer) SessionExists(code string) bool {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	_, ok := cs.sessions[code]
+	return ok
+}
+
+// GetRole returns the role of userID in a session, defaulting to "viewer".
+func (cs *CollabServer) GetRole(code, userID string) string {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	s, ok := cs.sessions[code]
+	if !ok {
+		return "viewer"
+	}
+	if role, ok := s.Roles[userID]; ok {
+		return role
+	}
+	return "viewer"
 }
 
 // Snapshot serializes all session states for Raft snapshotting.

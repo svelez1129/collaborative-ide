@@ -27,3 +27,12 @@ type RoleChangeCmd struct {
 	UserID      string // target user
 	Role        string // "editor" | "proposer" | "viewer"
 }
+
+// SessionCmd is submitted to Raft when a session is created or a user joins.
+// Replicating this ensures every node knows about every session.
+type SessionCmd struct {
+	Action string // "create" | "join"
+	Code   string // invite code
+	UserID string // creator or joining user
+	Role   string // "editor" for create, "viewer" for first join
+}

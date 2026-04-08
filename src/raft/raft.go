@@ -16,8 +16,8 @@ import (
 
 	"github.com/svelez1129/collaborative-ide/src/labgob"
 	"github.com/svelez1129/collaborative-ide/src/labrpc"
+	"github.com/svelez1129/collaborative-ide/src/persisterapi"
 	"github.com/svelez1129/collaborative-ide/src/raftapi"
-	tester "github.com/svelez1129/collaborative-ide/src/tester1"
 )
 
 // define role types
@@ -39,10 +39,10 @@ type LogEntry struct {
 
 // A Go object implementing a single Raft peer.
 type Raft struct {
-	mu        sync.Mutex          // Lock to protect shared access to this peer's state
-	peers     []*labrpc.ClientEnd // RPC end points of all peers
-	persister *tester.Persister   // Object to hold this peer's persisted state
-	me        int                 // this peer's index into peers[]
+	mu        sync.Mutex            // Lock to protect shared access to this peer's state
+	peers     []*labrpc.ClientEnd   // RPC end points of all peers
+	persister persisterapi.Persister // Object to hold this peer's persisted state
+	me        int                   // this peer's index into peers[]
 
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
@@ -842,7 +842,7 @@ func (rf *Raft) applier() {
 // Make() must return quickly, so it should start goroutines
 // for any long-running work.
 func Make(peers []*labrpc.ClientEnd, me int,
-	persister *tester.Persister, applyCh chan raftapi.ApplyMsg) raftapi.Raft {
+	persister persisterapi.Persister, applyCh chan raftapi.ApplyMsg) raftapi.Raft {
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister

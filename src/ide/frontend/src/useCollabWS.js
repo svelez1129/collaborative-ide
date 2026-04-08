@@ -123,6 +123,20 @@ export function useCollabWS({ ydoc, awareness, undoManager, code, userID, role, 
       } else {
         try {
           const msg = JSON.parse(event.data)
+          if (msg.type === 'redirect') {
+            // This node is not the Raft leader. Reconnect to the leader's port.
+            const leaderPort = msg.port
+            if (leaderPort && leaderPort !== location.port) {
+              const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+              const leaderHost = location.hostname + ':' + leaderPort
+              const newWS = new WebSocket(
+                `${proto}://${leaderHost}/ws?user_id=${encodeURIComponent(userID)}&code=${encodeURIComponent(code)}`
+              )
+              ws.close()
+              wsRef.current = newWS
+            }
+            return
+          }
           if (msg.type === 'participants')   onParticipants?.(msg.list)
           else if (msg.type === 'proposal')  onProposal?.(msg)
           else if (msg.type === 'role_change') onRoleChange?.(msg)

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
+	"github.com/svelez1129/collaborative-ide/src/rpc"
+	"github.com/svelez1129/collaborative-ide/src/rsm"
 )
 
 var upgrader = websocket.Upgrader{
@@ -15,13 +17,27 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	hub      *Hub
-	sessions *SessionStore
-	collab   *CollabServer
+	hub        *Hub
+	collab     *CollabServer
+	rsm        *rsm.RSM // nil in single-node mode
+	leaderPort int      // base HTTP port; used in redirect messages (0 = single-node)
 }
 
-func NewServer(hub *Hub, sessions *SessionStore, collab *CollabServer) *Server {
-	return &Server{hub: hub, sessions: sessions, collab: collab}
+func NewServer(hub *Hub, collab *CollabServer, r *rsm.RSM) *Server {
+	return &Server{hub: hub, collab: collab, rsm: r}
+}
+
+// submit routes a command through Raft consensus when an RSM is configured,
+// or falls back to direct DoOp in single-node mode.
+// Returns false if this node is not the Raft leader — the caller should send
+// a redirect to the client.
+func (s *Server) submit(cmd any) bool {
+	if s.rsm == nil {
+		s.collab.DoOp(cmd)
+		return true
+	}
+	err, _ := s.rsm.Submit(cmd)
+	return err == rpc.OK
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
@@ -33,6 +49,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 }
 
 // handleCreate creates a new session and returns the invite code.
+// The session is replicated through Raft so all nodes know about it.
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -45,14 +62,19 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing user_id", http.StatusBadRequest)
 		return
 	}
-	session := s.sessions.NewSession(req.UserID)
+	code := generateCode()
+	if !s.submit(SessionCmd{Action: "create", Code: code, UserID: req.UserID, Role: "editor"}) {
+		http.Error(w, "not the leader", http.StatusServiceUnavailable)
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]string{
-		"code": session.Code,
+		"code": code,
 		"role": "editor",
 	})
 }
 
 // handleJoin validates an invite code and returns the user's role.
+// The join is replicated through Raft so the user's role is consistent.
 func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -66,14 +88,17 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	session, ok := s.sessions.Get(req.Code)
-	if !ok {
+	if !s.collab.SessionExists(req.Code) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	role := session.GetRole(req.UserID)
+	if !s.submit(SessionCmd{Action: "join", Code: req.Code, UserID: req.UserID, Role: "viewer"}) {
+		http.Error(w, "not the leader", http.StatusServiceUnavailable)
+		return
+	}
+	role := s.collab.GetRole(req.Code, req.UserID)
 	json.NewEncoder(w).Encode(map[string]string{
-		"code": session.Code,
+		"code": req.Code,
 		"role": role,
 	})
 }
@@ -117,8 +142,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing user_id or code", http.StatusBadRequest)
 		return
 	}
-	session, ok := s.sessions.Get(code)
-	if !ok {
+	if !s.collab.SessionExists(code) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
@@ -129,7 +153,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	client := &Client{
 		ID:   userID,
-		Role: session.GetRole(userID),
+		Role: s.collab.GetRole(code, userID),
 		Code: code,
 		Conn: conn,
 		Send: make(chan WSMessage, 64),
@@ -160,7 +184,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		case websocket.BinaryMessage:
 			// Raw Yjs update — only editors can push CRDT changes.
 			if client.Role == "editor" {
-				s.collab.DoOp(CRDTUpdateCmd{SessionCode: code, Update: msg})
+				if !s.submit(CRDTUpdateCmd{SessionCode: code, Update: msg}) {
+					s.sendRedirect(conn)
+					return
+				}
 				s.hub.BroadcastSession(WSMessage{Binary: true, Data: msg}, userID, code)
 			}
 
@@ -171,9 +198,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			switch m.Type {
 			case "proposal":
-				s.handleProposalMsg(client, session, m)
+				s.handleProposalMsg(client, m)
 			case "role_change":
-				s.handleRoleChangeMsg(client, session, m)
+				s.handleRoleChangeMsg(client, m)
 			case "run_result":
 				s.hub.BroadcastSession(WSMessage{Binary: false, Data: msg}, userID, code)
 			case "awareness":
@@ -191,7 +218,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleProposalMsg(client *Client, session *Session, m incomingMsg) {
+func (s *Server) handleProposalMsg(client *Client, m incomingMsg) {
 	switch m.Action {
 	case "add":
 		if client.Role != "proposer" && client.Role != "editor" {
@@ -207,7 +234,7 @@ func (s *Server) handleProposalMsg(client *Client, session *Session, m incomingM
 			StartLine:    m.StartLine,
 			EndLine:      m.EndLine,
 		}
-		s.collab.DoOp(ProposalCmd{
+		if !s.submit(ProposalCmd{
 			SessionCode:  client.Code,
 			ID:           proposal.ID,
 			Author:       proposal.Author,
@@ -218,7 +245,10 @@ func (s *Server) handleProposalMsg(client *Client, session *Session, m incomingM
 			StartLine:    proposal.StartLine,
 			EndLine:      proposal.EndLine,
 			Action:       "add",
-		})
+		}) {
+			s.sendRedirect(client.Conn)
+			return
+		}
 		// Broadcast the new proposal to all clients in session.
 		out, _ := json.Marshal(map[string]any{
 			"type":   "proposal",
@@ -243,7 +273,10 @@ func (s *Server) handleProposalMsg(client *Client, session *Session, m incomingM
 		if m.Proposal == nil {
 			return
 		}
-		s.collab.DoOp(ProposalCmd{SessionCode: client.Code, ID: m.Proposal.ID, Action: m.Action})
+		if !s.submit(ProposalCmd{SessionCode: client.Code, ID: m.Proposal.ID, Action: m.Action}) {
+			s.sendRedirect(client.Conn)
+			return
+		}
 		out, _ := json.Marshal(map[string]any{
 			"type":   "proposal",
 			"action": m.Action,
@@ -255,15 +288,18 @@ func (s *Server) handleProposalMsg(client *Client, session *Session, m incomingM
 	}
 }
 
-func (s *Server) handleRoleChangeMsg(client *Client, session *Session, m incomingMsg) {
+func (s *Server) handleRoleChangeMsg(client *Client, m incomingMsg) {
 	if client.Role != "editor" {
 		return
 	}
-	if err := session.SetRole(m.UserID, m.Role); err != nil {
+	if m.Role != "editor" && m.Role != "proposer" && m.Role != "viewer" {
 		return
 	}
 	s.hub.UpdateClientRole(m.UserID, m.Role)
-	s.collab.DoOp(RoleChangeCmd{SessionCode: client.Code, UserID: m.UserID, Role: m.Role})
+	if !s.submit(RoleChangeCmd{SessionCode: client.Code, UserID: m.UserID, Role: m.Role}) {
+		s.sendRedirect(client.Conn)
+		return
+	}
 
 	// Notify all clients of the role change, then send updated participant list.
 	out, _ := json.Marshal(map[string]any{
@@ -273,6 +309,16 @@ func (s *Server) handleRoleChangeMsg(client *Client, session *Session, m incomin
 	})
 	s.hub.BroadcastSessionAll(WSMessage{Binary: false, Data: out}, client.Code)
 	s.broadcastParticipants(client.Code)
+}
+
+// sendRedirect tells a client it reached a non-leader node and should retry.
+// The client will reconnect to the leader's HTTP port.
+func (s *Server) sendRedirect(conn *websocket.Conn) {
+	out, _ := json.Marshal(map[string]any{
+		"type": "redirect",
+		"port": s.leaderPort,
+	})
+	conn.WriteMessage(websocket.TextMessage, out)
 }
 
 // broadcastParticipants sends the current participant list to all clients in the session.

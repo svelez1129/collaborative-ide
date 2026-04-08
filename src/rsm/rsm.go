@@ -4,11 +4,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/svelez1129/collaborative-ide/src/rpc"
 	"github.com/svelez1129/collaborative-ide/src/labrpc"
+	"github.com/svelez1129/collaborative-ide/src/persisterapi"
 	raft "github.com/svelez1129/collaborative-ide/src/raft"
 	"github.com/svelez1129/collaborative-ide/src/raftapi"
-	tester "github.com/svelez1129/collaborative-ide/src/tester1"
+	"github.com/svelez1129/collaborative-ide/src/rpc"
 )
 
 type Op struct {
@@ -66,7 +66,7 @@ type OpResult struct {
 //
 // MakeRSM() must return quickly, so it should start goroutines for
 // any long-running work.
-func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, maxraftstate int, sm StateMachine) *RSM {
+func MakeRSM(servers []*labrpc.ClientEnd, me int, persister persisterapi.Persister, maxraftstate int, sm StateMachine) *RSM {
 	rsm := &RSM{
 		me:           me,
 		maxraftstate: maxraftstate,
@@ -79,9 +79,7 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 		//map of channel terms, if channel term changed we changed leaders
 		chanTerms: make(map[int]int),
 	}
-	if !tester.UseRaftStateMachine {
-		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
-	}
+	rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
 	//see if we have a snapshot
 	snapshot := persister.ReadSnapshot()
 	if len(snapshot) > 0 {

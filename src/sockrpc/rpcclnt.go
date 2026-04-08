@@ -24,6 +24,22 @@ func NewRPCClnt(clntEnd, srvEnd string) *RPCClnt {
 	return &RPCClnt{clnt: clntEnd, dmx: getDmx(clntEnd, srvEnd), srvEnd: srvEnd}
 }
 
+// TryNewRPCClnt attempts a single connection with a short timeout.
+// Returns nil if the peer is not yet listening — the caller should retry later.
+func TryNewRPCClnt(clntEnd, srvEnd string) *RPCClnt {
+	c, err := net.DialTimeout("unix", SockName(srvEnd), 200*time.Millisecond)
+	if err != nil {
+		return nil
+	}
+	t := demux.NewTransport(c)
+	dc, err := demux.NewDemuxClnt(clntEnd, srvEnd, t)
+	if err != nil {
+		c.Close()
+		return nil
+	}
+	return &RPCClnt{clnt: clntEnd, dmx: dc, srvEnd: srvEnd}
+}
+
 func (rpcc *RPCClnt) Server() string {
 	return rpcc.srvEnd
 }
